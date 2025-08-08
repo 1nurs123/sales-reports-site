@@ -70,7 +70,7 @@ export default function Home() {
   return (
     <>
       <div className="card" style={{ marginBottom: 16 }}>
-        <h1>Лидерборд <span className="badge">{leaderboard.length} менеджеров</span></h1>
+        <h1>Лидерборд <span className="badge">{leaderboard.length} Отдел Продаж</span></h1>
         <div className="controls">
           <label>Отдел:
             <select value={dept} onChange={e => setDept(e.target.value)}>
