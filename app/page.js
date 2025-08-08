@@ -1,43 +1,37 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabaseClient'; // важно: относительный путь
+import { supabase } from '../lib/supabaseClient';
+
+const fmt = (n) => Number(n || 0).toLocaleString('ru-RU');
 
 export default function Home() {
   const [rows, setRows] = useState([]);
   const [dept, setDept] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [sortLb, setSortLb] = useState({ by: 'revenue', dir: 'desc' });
+  const [sortArch, setSortArch] = useState({ by: 'period_start', dir: 'desc' });
 
-  // грузим строки из weekly_sales
   useEffect(() => {
-    supabase
-      .from('weekly_sales')
-      .select('*')
-      .order('period_start', { ascending: false })
-      .then(({ data, error }) => {
-        if (!error && data) setRows(data);
-      });
+    supabase.from('weekly_sales').select('*').order('period_start', { ascending: false })
+      .then(({ data, error }) => { if (!error && data) setRows(data); });
   }, []);
 
-  // список отделов
   const departments = useMemo(
     () => Array.from(new Set(rows.map(r => r.department))).sort(),
     [rows]
   );
 
-  // фильтрация
-  const filtered = useMemo(
-    () =>
-      rows.filter(r => {
-        if (dept && r.department !== dept) return false;
-        if (from && r.period_start < from) return false;
-        if (to && r.period_start > to) return false;
-        return true;
-      }),
-    [rows, dept, from, to]
-  );
+  const filtered = useMemo(() =>
+    rows.filter(r => {
+      if (dept && r.department !== dept) return false;
+      if (from && r.period_start < from) return false;
+      if (to && r.period_start > to) return false;
+      return true;
+    }),
+  [rows, dept, from, to]);
 
-  // лидерборд по выручке (revenue)
+  // Лидерборд
   const leaderboard = useMemo(() => {
     const map = new Map();
     filtered.forEach(r => {
@@ -47,78 +41,111 @@ export default function Home() {
       curr.deals += Number(r.deals_count || 0);
       map.set(key, curr);
     });
-    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
-  }, [filtered]);
+    const arr = Array.from(map.values());
+    arr.sort((a,b) => {
+      const dir = sortLb.dir === 'asc' ? 1 : -1;
+      if (sortLb.by === 'revenue') return (a.revenue - b.revenue) * dir;
+      return (a.deals - b.deals) * dir;
+    });
+    return sortLb.dir === 'asc' ? arr : arr.reverse();
+  }, [filtered, sortLb]);
+
+  // Архив
+  const archive = useMemo(() => {
+    const arr = [...filtered];
+    const dir = sortArch.dir === 'asc' ? 1 : -1;
+    arr.sort((a,b) => {
+      if (sortArch.by === 'period_start') return (new Date(a.period_start) - new Date(b.period_start)) * dir;
+      if (sortArch.by === 'revenue') return ((a.revenue||0)-(b.revenue||0)) * dir;
+      if (sortArch.by === 'deals') return ((a.deals_count||0)-(b.deals_count||0)) * dir;
+      return String(a[sortArch.by]||'').localeCompare(String(b[sortArch.by]||'')) * dir;
+    });
+    return arr;
+  }, [filtered, sortArch]);
+
+  const toggle = (setter, curr, by) => {
+    setter({ by, dir: curr.by === by && curr.dir === 'desc' ? 'asc' : 'desc' });
+  };
 
   return (
-    <main style={{ padding: 20, fontFamily: 'system-ui, Arial' }}>
-      <h1 style={{ marginTop: 0 }}>Лидерборд</h1>
+    <>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h1>Лидерборд <span className="badge">{leaderboard.length} менеджеров</span></h1>
+        <div className="controls">
+          <label>Отдел:
+            <select value={dept} onChange={e => setDept(e.target.value)}>
+              <option value="">Все</option>
+              {departments.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label>С даты:
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          </label>
+          <label>По дату:
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+          </label>
+        </div>
 
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <label>Отдел:{' '}
-          <select value={dept} onChange={e => setDept(e.target.value)}>
-            <option value="">Все</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </label>
-        <label>С даты:{' '}
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-        </label>
-        <label>По дату:{' '}
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-        </label>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Менеджер</th>
+              <th className="right clickable" onClick={() => toggle(setSortLb, sortLb, 'revenue')}>
+                Выручка {sortLb.by==='revenue' ? (sortLb.dir==='desc' ? '▼' : '▲') : ''}
+              </th>
+              <th className="right clickable" onClick={() => toggle(setSortLb, sortLb, 'deals')}>
+                Сделки {sortLb.by==='deals' ? (sortLb.dir==='desc' ? '▼' : '▲') : ''}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaderboard.map((r, i) => (
+              <tr key={r.manager}>
+                <td>{i + 1}</td>
+                <td>{r.manager}</td>
+                <td className="right">{fmt(r.revenue)}</td>
+                <td className="right">{r.deals}</td>
+              </tr>
+            ))}
+            {!leaderboard.length && <tr><td colSpan="4" style={{ textAlign: 'center', padding: 16 }}>Нет данных</td></tr>}
+          </tbody>
+        </table>
       </div>
 
-      <table width="100%" cellPadding="8" style={{ borderCollapse: 'collapse', marginBottom: 24 }}>
-        <thead>
-          <tr>
-            <th align="left">#</th>
-            <th align="left">Менеджер</th>
-            <th align="right">Выручка</th>
-            <th align="right">Сделки</th>
-          </tr>
-        </thead>
-        <tbody>
-          {leaderboard.map((r, i) => (
-            <tr key={r.manager}>
-              <td>{i + 1}</td>
-              <td>{r.manager}</td>
-              <td align="right">{r.revenue.toLocaleString()}</td>
-              <td align="right">{r.deals}</td>
+      <div className="card">
+        <h2>Архив строк <span className="badge">{archive.length}</span></h2>
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="clickable" onClick={() => toggle(setSortArch, sortArch, 'period_start')}>
+                Период {sortArch.by==='period_start' ? (sortArch.dir==='desc' ? '▼' : '▲') : ''}
+              </th>
+              <th>Отдел</th>
+              <th>Партнёр</th>
+              <th>Менеджер</th>
+              <th className="right clickable" onClick={() => toggle(setSortArch, sortArch, 'revenue')}>
+                Выручка {sortArch.by==='revenue' ? (sortArch.dir==='desc' ? '▼' : '▲') : ''}
+              </th>
+              <th className="right clickable" onClick={() => toggle(setSortArch, sortArch, 'deals')}>
+                Сделки {sortArch.by==='deals' ? (sortArch.dir==='desc' ? '▼' : '▲') : ''}
+              </th>
             </tr>
-          ))}
-          {leaderboard.length === 0 && (
-            <tr><td colSpan="4" align="center">Нет данных</td></tr>
-          )}
-        </tbody>
-      </table>
-
-      <h2>Архив строк</h2>
-      <table width="100%" cellPadding="8" style={{ borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th align="left">Период</th>
-            <th align="left">Отдел</th>
-            <th align="left">Партнёр</th>
-            <th align="left">Менеджер</th>
-            <th align="right">Выручка</th>
-            <th align="right">Сделки</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map(r => (
-            <tr key={r.id}>
-              <td>{r.period_start} — {r.period_end}</td>
-              <td>{r.department}</td>
-              <td>{r.partner || ''}</td>
-              <td>{r.manager}</td>
-              <td align="right">{Number(r.revenue || 0).toLocaleString()}</td>
-              <td align="right">{r.deals_count || 0}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+          </thead>
+          <tbody>
+            {archive.map(r => (
+              <tr key={r.id}>
+                <td>{r.period_start} — {r.period_end}</td>
+                <td>{r.department}</td>
+                <td>{r.partner || ''}</td>
+                <td>{r.manager}</td>
+                <td className="right">{fmt(r.revenue)}</td>
+                <td className="right">{r.deals_count || 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
-
