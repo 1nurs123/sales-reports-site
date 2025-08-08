@@ -4,9 +4,8 @@ import { supabase } from '../lib/supabaseClient';
 
 const fmt = (n) => Number(n || 0).toLocaleString('ru-RU');
 
-/** Полная страница: "Лучший менеджер месяца" + Лидерборд + Архив */
 export default function Home() {
-  // --- ДАННЫЕ ПО НЕДЕЛЯМ (leaderboard/архив) ---
+  // ===== Weekly sales (лидерборд + архив) =====
   const [rows, setRows] = useState([]);
   const [dept, setDept] = useState('');
   const [from, setFrom] = useState('');
@@ -70,43 +69,41 @@ export default function Home() {
   const toggle = (setter, curr, by) =>
     setter({ by, dir: curr.by === by && curr.dir === 'desc' ? 'asc' : 'desc' });
 
-  // --- ЛУЧШИЙ МЕНЕДЖЕР МЕСЯЦА (таблица monthly_awards) ---
-  // В этой таблице поля: id, month (например "Июль 2025"), manager, revenue
-  const [awardMonths, setAwardMonths] = useState<string[]>([]);
-  const [awardMonth, setAwardMonth] = useState(''); // выбранный месяц
-  const [awards, setAwards] = useState<any[]>([]);  // топ-3 за месяц
+  // ===== Лучший менеджер месяца (monthly_awards с month_start) =====
+  const [awardMonths, setAwardMonths] = useState([]); // список месяцев (YYYY-MM)
+  const [awardMonth, setAwardMonth] = useState('');   // выбранный месяц
+  const [awards, setAwards] = useState([]);           // топ-3 за месяц
 
-  // Получаем список месяцев, где есть записи
+  // получаем список месяцев, где есть записи
   useEffect(() => {
     supabase
       .from('monthly_awards')
-      .select('month')
-      .order('month', { ascending: false })
+      .select('month_start')
+      .order('month_start', { ascending: false })
       .then(({ data, error }) => {
         if (error || !data) return;
-        const uniq = Array.from(new Set(data.map(r => r.month)));
+        const uniq = Array.from(new Set(data.map(r => r.month_start.slice(0,7))));
         setAwardMonths(uniq);
-        if (!awardMonth && uniq.length) setAwardMonth(uniq[0]); // выставим последний доступный
+        if (!awardMonth && uniq.length) setAwardMonth(uniq[0]); // последний доступный
       });
   }, []);
 
-  // Загружаем топ за выбранный месяц
+  // подгружаем тройку на выбранный месяц
   useEffect(() => {
     if (!awardMonth) return;
     supabase
       .from('monthly_awards')
       .select('*')
-      .eq('month', awardMonth)
-      .order('revenue', { ascending: false }) // по убыванию выручки
+      .eq('month_start', `${awardMonth}-01`)
+      .order('rank', { ascending: true })
       .then(({ data }) => setAwards(data || []));
   }, [awardMonth]);
 
   return (
     <>
-      {/* Блок: Лучший менеджер месяца */}
+      {/* Лучший менеджер месяца */}
       <div className="card" style={{ marginBottom: 16 }}>
         <h1>Лучший менеджер месяца</h1>
-
         <div className="controls">
           <label>Месяц:
             <select value={awardMonth} onChange={e => setAwardMonth(e.target.value)}>
@@ -114,7 +111,6 @@ export default function Home() {
             </select>
           </label>
         </div>
-
         <table className="table">
           <thead>
             <tr>
@@ -139,7 +135,7 @@ export default function Home() {
         </table>
       </div>
 
-      {/* Блок: Лидерборд */}
+      {/* Лидерборд */}
       <div className="card" style={{ marginBottom: 16 }}>
         <h1>Лидерборд <span className="badge">{leaderboard.length} менеджеров</span></h1>
         <div className="controls">
@@ -184,7 +180,7 @@ export default function Home() {
         </table>
       </div>
 
-      {/* Блок: Архив */}
+      {/* Архив */}
       <div className="card">
         <h2>Архив строк <span className="badge">{archive.length}</span></h2>
         <table className="table">
