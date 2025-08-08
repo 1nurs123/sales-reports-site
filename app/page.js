@@ -1,8 +1,124 @@
+'use client';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabaseClient'; // важно: относительный путь
+
 export default function Home() {
+  const [rows, setRows] = useState([]);
+  const [dept, setDept] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  // грузим строки из weekly_sales
+  useEffect(() => {
+    supabase
+      .from('weekly_sales')
+      .select('*')
+      .order('period_start', { ascending: false })
+      .then(({ data, error }) => {
+        if (!error && data) setRows(data);
+      });
+  }, []);
+
+  // список отделов
+  const departments = useMemo(
+    () => Array.from(new Set(rows.map(r => r.department))).sort(),
+    [rows]
+  );
+
+  // фильтрация
+  const filtered = useMemo(
+    () =>
+      rows.filter(r => {
+        if (dept && r.department !== dept) return false;
+        if (from && r.period_start < from) return false;
+        if (to && r.period_start > to) return false;
+        return true;
+      }),
+    [rows, dept, from, to]
+  );
+
+  // лидерборд по выручке (revenue)
+  const leaderboard = useMemo(() => {
+    const map = new Map();
+    filtered.forEach(r => {
+      const key = r.manager || 'Не указан';
+      const curr = map.get(key) || { manager: key, revenue: 0, deals: 0 };
+      curr.revenue += Number(r.revenue || 0);
+      curr.deals += Number(r.deals_count || 0);
+      map.set(key, curr);
+    });
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [filtered]);
+
   return (
-    <main style={{ padding: "20px", fontFamily: "Arial" }}>
-      <h1>Sales Reports</h1>
-      <p>Welcome to the sales reports site deployed on Vercel.</p>
+    <main style={{ padding: 20, fontFamily: 'system-ui, Arial' }}>
+      <h1 style={{ marginTop: 0 }}>Лидерборд</h1>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <label>Отдел:{' '}
+          <select value={dept} onChange={e => setDept(e.target.value)}>
+            <option value="">Все</option>
+            {departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label>С даты:{' '}
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+        </label>
+        <label>По дату:{' '}
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+        </label>
+      </div>
+
+      <table width="100%" cellPadding="8" style={{ borderCollapse: 'collapse', marginBottom: 24 }}>
+        <thead>
+          <tr>
+            <th align="left">#</th>
+            <th align="left">Менеджер</th>
+            <th align="right">Выручка</th>
+            <th align="right">Сделки</th>
+          </tr>
+        </thead>
+        <tbody>
+          {leaderboard.map((r, i) => (
+            <tr key={r.manager}>
+              <td>{i + 1}</td>
+              <td>{r.manager}</td>
+              <td align="right">{r.revenue.toLocaleString()}</td>
+              <td align="right">{r.deals}</td>
+            </tr>
+          ))}
+          {leaderboard.length === 0 && (
+            <tr><td colSpan="4" align="center">Нет данных</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      <h2>Архив строк</h2>
+      <table width="100%" cellPadding="8" style={{ borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th align="left">Период</th>
+            <th align="left">Отдел</th>
+            <th align="left">Партнёр</th>
+            <th align="left">Менеджер</th>
+            <th align="right">Выручка</th>
+            <th align="right">Сделки</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map(r => (
+            <tr key={r.id}>
+              <td>{r.period_start} — {r.period_end}</td>
+              <td>{r.department}</td>
+              <td>{r.partner || ''}</td>
+              <td>{r.manager}</td>
+              <td align="right">{Number(r.revenue || 0).toLocaleString()}</td>
+              <td align="right">{r.deals_count || 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </main>
   );
 }
+
