@@ -4,7 +4,9 @@ import { supabase } from '../lib/supabaseClient';
 
 const fmt = (n) => Number(n || 0).toLocaleString('ru-RU');
 
+/** Полная страница: "Лучший менеджер месяца" + Лидерборд + Архив */
 export default function Home() {
+  // --- ДАННЫЕ ПО НЕДЕЛЯМ (leaderboard/архив) ---
   const [rows, setRows] = useState([]);
   const [dept, setDept] = useState('');
   const [from, setFrom] = useState('');
@@ -13,7 +15,10 @@ export default function Home() {
   const [sortArch, setSortArch] = useState({ by: 'period_start', dir: 'desc' });
 
   useEffect(() => {
-    supabase.from('weekly_sales').select('*').order('period_start', { ascending: false })
+    supabase
+      .from('weekly_sales')
+      .select('*')
+      .order('period_start', { ascending: false })
       .then(({ data, error }) => { if (!error && data) setRows(data); });
   }, []);
 
@@ -31,7 +36,6 @@ export default function Home() {
     }),
   [rows, dept, from, to]);
 
-  // Лидерборд
   const leaderboard = useMemo(() => {
     const map = new Map();
     filtered.forEach(r => {
@@ -42,15 +46,15 @@ export default function Home() {
       map.set(key, curr);
     });
     const arr = Array.from(map.values());
-    arr.sort((a,b) => {
-      const dir = sortLb.dir === 'asc' ? 1 : -1;
-      if (sortLb.by === 'revenue') return (a.revenue - b.revenue) * dir;
-      return (a.deals - b.deals) * dir;
-    });
-    return sortLb.dir === 'asc' ? arr : arr.reverse();
+    const dir = sortLb.dir === 'asc' ? 1 : -1;
+    arr.sort((a,b) =>
+      sortLb.by === 'revenue'
+        ? (a.revenue - b.revenue) * dir
+        : (a.deals - b.deals) * dir
+    );
+    return arr;
   }, [filtered, sortLb]);
 
-  // Архив
   const archive = useMemo(() => {
     const arr = [...filtered];
     const dir = sortArch.dir === 'asc' ? 1 : -1;
@@ -63,14 +67,81 @@ export default function Home() {
     return arr;
   }, [filtered, sortArch]);
 
-  const toggle = (setter, curr, by) => {
+  const toggle = (setter, curr, by) =>
     setter({ by, dir: curr.by === by && curr.dir === 'desc' ? 'asc' : 'desc' });
-  };
+
+  // --- ЛУЧШИЙ МЕНЕДЖЕР МЕСЯЦА (таблица monthly_awards) ---
+  // В этой таблице поля: id, month (например "Июль 2025"), manager, revenue
+  const [awardMonths, setAwardMonths] = useState<string[]>([]);
+  const [awardMonth, setAwardMonth] = useState(''); // выбранный месяц
+  const [awards, setAwards] = useState<any[]>([]);  // топ-3 за месяц
+
+  // Получаем список месяцев, где есть записи
+  useEffect(() => {
+    supabase
+      .from('monthly_awards')
+      .select('month')
+      .order('month', { ascending: false })
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const uniq = Array.from(new Set(data.map(r => r.month)));
+        setAwardMonths(uniq);
+        if (!awardMonth && uniq.length) setAwardMonth(uniq[0]); // выставим последний доступный
+      });
+  }, []);
+
+  // Загружаем топ за выбранный месяц
+  useEffect(() => {
+    if (!awardMonth) return;
+    supabase
+      .from('monthly_awards')
+      .select('*')
+      .eq('month', awardMonth)
+      .order('revenue', { ascending: false }) // по убыванию выручки
+      .then(({ data }) => setAwards(data || []));
+  }, [awardMonth]);
 
   return (
     <>
+      {/* Блок: Лучший менеджер месяца */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <h1>Лидерборд <span className="badge">{leaderboard.length} Менеджер</span></h1>
+        <h1>Лучший менеджер месяца</h1>
+
+        <div className="controls">
+          <label>Месяц:
+            <select value={awardMonth} onChange={e => setAwardMonth(e.target.value)}>
+              {awardMonths.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <table className="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Менеджер</th>
+              <th className="right">Выручка</th>
+            </tr>
+          </thead>
+          <tbody>
+            {awards.length ? awards.map((a, idx) => (
+              <tr key={a.id}>
+                <td>{idx + 1}</td>
+                <td>{a.manager}</td>
+                <td className="right">{fmt(a.revenue)} тг</td>
+              </tr>
+            )) : (
+              <tr><td colSpan="3" style={{ textAlign:'center', padding: 12 }}>
+                Нет данных за выбранный месяц
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Блок: Лидерборд */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h1>Лидерборд <span className="badge">{leaderboard.length} менеджеров</span></h1>
         <div className="controls">
           <label>Отдел:
             <select value={dept} onChange={e => setDept(e.target.value)}>
@@ -108,11 +179,12 @@ export default function Home() {
                 <td className="right">{r.deals}</td>
               </tr>
             ))}
-            {!leaderboard.length && <tr><td colSpan="4" style={{ textAlign: 'center', padding: 16 }}>Нет данных</td></tr>}
+            {!leaderboard.length && <tr><td colSpan="4" style={{ textAlign:'center', padding: 16 }}>Нет данных</td></tr>}
           </tbody>
         </table>
       </div>
 
+      {/* Блок: Архив */}
       <div className="card">
         <h2>Архив строк <span className="badge">{archive.length}</span></h2>
         <table className="table">
